@@ -1,13 +1,27 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import axios from 'axios';
 
 const PAGE_COUNT = 10;
+
+interface Planet {
+  name: string;
+  population: string;
+}
+
+interface PlanetsHash {
+  [x: string]: Planet;
+}
 interface Person {
   name: string;
+  birth_year: string;
+  homeworld: string;
+  planet?: Planet;
 }
 
 function App() {
+  const [planets, setPlanets] = useState<PlanetsHash>({});
+  const [initialized, setInitialized] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
   const [nextPeople, setNextPeople] = useState('');
   const [prevPeople, setPrevPeople] = useState('');
@@ -15,10 +29,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [count, setCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-
-  const handlePersonClick = useCallback((person) => {
-    console.log({ person });
-  }, []);
 
   const handleLoadPeople = useCallback(async (url) => {
     setLoading(true);
@@ -32,6 +42,23 @@ function App() {
     setPeople(results);
     setLoading(false);
   }, []);
+
+  const planetsRef = useRef<PlanetsHash>({});
+  const restCallMadeForPlanet = useRef<{ [x: string]: boolean }>({});
+  useEffect(() => {
+    people.forEach(async (person: Person) => {
+      if (planetsRef.current[person.homeworld] || restCallMadeForPlanet.current[person.homeworld]) {
+        return;
+      }
+      restCallMadeForPlanet.current[person.homeworld] = true;
+      const { data: planet } = await axios.get(person.homeworld);
+      setPlanets({
+        ...planetsRef.current,
+        [person.homeworld]: planet
+      });
+      planetsRef.current[person.homeworld] = planet;
+    });
+  }, [people]);
 
   const handleOnNextClick = useCallback(() => {
     handleLoadPeople(nextPeople);
@@ -61,34 +88,65 @@ function App() {
     setTotalPages(Math.ceil(count / PAGE_COUNT));
   }, [count]);
 
-  useEffect(() => {
-    handleLoadPeople('/api/people');
-  }, [handleLoadPeople]);
+  const handleInitialize = useCallback(
+    (person) => {
+      setInitialized(true);
+      handleLoadPeople('/api/people');
+    },
+    [handleLoadPeople]
+  );
 
   return (
     <div className='app'>
-      <h3>{count} People</h3>
-      <ul className='people'>
-        {!loading &&
-          people.map((person, index) => (
-            <li className='person' key={index}>
-              <button onClick={() => handlePersonClick(person)}>
-                {getPersonIndex(index)}&nbsp;{person.name}
-              </button>
-            </li>
-          ))}
-      </ul>
-      <div className='paging'>
-        <p>
-          Page {currentPage} of {totalPages}
-        </p>
-        <button disabled={loading || !prevPeople} onClick={handleOnPrevClick}>
-          Prev
-        </button>
-        <button disabled={loading || !nextPeople} className='next' onClick={handleOnNextClick}>
-          Next
-        </button>
-      </div>
+      <h3 className='title'>Homeworld people</h3>
+      {!initialized && <button onClick={handleInitialize}>Initialize Homeworld</button>}
+      {initialized && (
+        <>
+          <h3>{count} People</h3>
+          <div className='paging'>
+            <p>
+              Page {currentPage} of {totalPages}
+            </p>
+            <button disabled={loading || !prevPeople} onClick={handleOnPrevClick}>
+              Prev
+            </button>
+            <button disabled={loading || !nextPeople} className='next' onClick={handleOnNextClick}>
+              Next
+            </button>
+          </div>
+          <ul className='people'>
+            {loading && <div className='spinner'></div>}
+            {!loading && (
+              <li className='people_heading'>
+                <span>Name</span>
+                <span>Birth Year</span>
+                <span>Homeworld name</span>
+                <span>Homeworld population</span>
+              </li>
+            )}
+            {!loading &&
+              people.map((person, index) => (
+                <li className='person' key={index}>
+                  <span className='person-name'>
+                    {getPersonIndex(index)}.&nbsp;{person.name}
+                  </span>
+                  <span>{person.birth_year}</span>
+                  {planets[person.homeworld] ? (
+                    <>
+                      <span>{planets[person.homeworld].name ?? '...'}</span>
+                      <span>{planets[person.homeworld].population ?? '...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className='small-spinner'></div>
+                      <div className='small-spinner'></div>
+                    </>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
